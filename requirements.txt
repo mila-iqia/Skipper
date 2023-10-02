@@ -1,0 +1,13 @@
+gym==0.26
+imageio-ffmpeg<0.4.0
+imageio
+opencv-python
+gym-minigrid
+cpprb
+tensorboard
+tensorboardx
+psutil
+jupyterlab
+line_profiler
+scipy
+
