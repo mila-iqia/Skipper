@@ -89,7 +89,7 @@ print(args)
 
 if args.method == "DQN":
     agent = create_DQN_agent(args, env=env, dim_embed=args.dim_embed, num_actions=env.action_space.n)
-elif args.method == "Skipper":  # TODO(H): vcalidate if this part still works well
+elif args.method == "Skipper":
     hrb = get_cpprb(env, args.size_buffer, prioritized=args.prioritized_replay, hindsight=True, hindsight_strategy=args.hindsight_strategy)
     agent = create_Skipper_agent(args, env=env, dim_embed=args.dim_embed, num_actions=env.action_space.n, hrb=hrb)
 else:

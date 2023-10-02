@@ -1,7 +1,7 @@
 import os, sys
 
 sys.path.insert(1, os.getcwd())
-import torch  # , numpy as np
+import torch
 from utils import init_weights
 import warnings
 
@@ -25,7 +25,7 @@ class Block_UNET(torch.nn.Module):
             channels_mid = channels_out
         else:
             assert isinstance(channels_mid, int)
-        self.layers = torch.nn.Sequential(  # 8x8
+        self.layers = torch.nn.Sequential(
             torch.nn.Conv2d(
                 channels_in,
                 channels_mid,
@@ -74,7 +74,7 @@ class Block_UNET_simple(torch.nn.Module):
         **kwargs,
     ):
         super(Block_UNET_simple, self).__init__(**kwargs)
-        self.layers = torch.nn.Sequential(  # 8x8
+        self.layers = torch.nn.Sequential(
             torch.nn.Conv2d(
                 channels_in,
                 channels_out,
@@ -537,14 +537,12 @@ def bottlenecked_multi_head_attention_forward(
     if static_k is None:
         k = k.view(k.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
     else:
-        # TODO finish disentangling control flow so we don't do in-projections when statics are passed
         assert static_k.size(0) == bsz * num_heads, f"expecting static_k.size(0) of {bsz * num_heads}, but got {static_k.size(0)}"
         assert static_k.size(2) == head_dim, f"expecting static_k.size(2) of {head_dim}, but got {static_k.size(2)}"
         k = static_k
     if static_v is None:
         v = v.view(v.shape[0], bsz * num_heads, head_dim).transpose(0, 1)
     else:
-        # TODO finish disentangling control flow so we don't do in-projections when statics are passed
         assert static_v.size(0) == bsz * num_heads, f"expecting static_v.size(0) of {bsz * num_heads}, but got {static_v.size(0)}"
         assert static_v.size(2) == head_dim, f"expecting static_v.size(2) of {head_dim}, but got {static_v.size(2)}"
         v = static_v

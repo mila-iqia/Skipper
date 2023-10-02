@@ -261,7 +261,7 @@ def explorer(
                 rb_global.rb.add(**samples_local, priorities=new_priorities)
                 del ret
             else:
-                rb_global.rb.add(**samples_local)  # TODO(H): global doesnt need full HER
+                rb_global.rb.add(**samples_local)
             with episodes_interact.get_lock():
                 episodes_interact.value += episodes_collected
             episodes_collected = 0

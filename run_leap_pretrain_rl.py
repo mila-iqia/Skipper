@@ -60,7 +60,6 @@ envs_train = []
 env = get_new_env(args, **config_train)
 
 args.seed_rl_run = random.randint(0, 1000000)
-args.leap_vae_discrete = True
 assert len(args.seed), "must load vae checkpoint"
 args.seed = get_set_seed(args.seed, env)
 args.method = "leap"
@@ -104,7 +103,6 @@ save_code_snapshot(path_tf_events)
 
 print(args)
 agent = create_leap_agent(args, env=env, dim_embed=args.dim_embed, num_actions=env.action_space.n)
-# TODO(H): load the envs too
 ################################################################
 
 milestones_evaluation = []
@@ -117,7 +115,6 @@ episode_elapsed = 0
 time_start = time.time()
 return_cum, return_cum_discount, steps_episode, time_episode_start, str_info = 0.0, 0.0, 0, time.time(), ""
 
-# TODO(H): what if the state_rep collapses? is the only way to do this to be inside an agent?
 while True:
     if args.randomized:
         env = generator_env_train()

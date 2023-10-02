@@ -311,7 +311,7 @@ class SKIPPER_BASE(RL_AGENT):
             predicted_Q = self.network_policy.estimator_Q(states_local_curr_targ, batch_action, scalarize=False)
         predicted_discount = self.network_policy.estimator_discount(states_local_curr_targ, batch_action, scalarize=False)
         logits_reward_curr = self.network_policy.estimator_reward(states_local_curr_targ, batch_action, scalarize=False)
-        # TODO(H): reuse batch_state_next_targetnet, batch_state_curr, state_local_curr, state_local_next
+        # TODO(H): reuse batch_state_next_targetnet, batch_state_curr, state_local_curr, state_local_next for suppress?
 
         with torch.no_grad():
             states_local_next_targ = torch.cat([state_local_next.detach(), state_local_targ.detach()], -1)
@@ -360,7 +360,6 @@ class SKIPPER_BASE(RL_AGENT):
                     values_next[batch_targ_reached] = 0
                 else:
                     raise NotImplementedError()
-                # TODO(H): batch_reward here should be intrinsic reward, how to balance the reward-respecting perspective?
                 target_Q = batch_reward_int + self.gamma_int * values_next
                 Q_dist_target = self.network_target.estimator_Q.histogram_converter.to_histogram(target_Q)
             Q_logits_curr = predicted_Q.reshape(size_batch, -1)
@@ -491,9 +490,7 @@ class SKIPPER_BASE(RL_AGENT):
             int_code = int_codes_all[idx_ij]
             correspondence[str(int_code)].append(ijs[idx_ij].tolist())
         indices_unique_ijs = find_unique(torch.tensor(ijs, device=codes_all.device))
-        # print(f"latents focus on {len(indices_unique_ijs)} states")
         writer.add_scalar("Train_CVAE/concentration_s2z", len(indices_unique_ijs), step_record)
-        # TODO(H): check with eyes first then do the visualization
 
     def get_random_action(self, trigger_replan=True):
         if trigger_replan:
@@ -1054,7 +1051,7 @@ class SKIPPER(SKIPPER_BASE):
                         del env, obs_curr, targ
                 else:
                     _batch_obs_targ = self.cvae.imagine_batch_from_obs(batch_obs_curr)
-            (_, _loss_TD, _loss_discount, _loss_reward, _, _, _, _) = self.calculate_multihead_error(  # TODO(H): do two passes for now, check if it's good
+            _, _loss_TD, _loss_discount, _loss_reward, _, _, _, _ = self.calculate_multihead_error(  # NOTE(H): do two passes for now
                 batch_obs_curr,
                 batch_action,
                 batch_reward,
@@ -1069,9 +1066,9 @@ class SKIPPER(SKIPPER_BASE):
                 freeze_encoder=False,
                 freeze_binder=False,
             )
-            loss_TD_aux = _loss_TD.mean()
+            # loss_TD_aux = _loss_TD.mean()
             loss_discount_aux = _loss_discount.mean()
-            loss_reward_aux = _loss_reward.mean()
+            # loss_reward_aux = _loss_reward.mean()
 
         if self.cvae is not None:
             (
@@ -1368,7 +1365,6 @@ def create_Skipper_agent(
         network_policy = create_Skipper_network(args, env, dim_embed, num_actions, device=device, share_memory=False)
 
     if inference_only:
-        # TODO(H): maybe input all the CVAE hyperparameters here too
         agent = SKIPPER_BASE(
             env,
             network_policy,

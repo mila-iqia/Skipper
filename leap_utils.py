@@ -242,14 +242,9 @@ class LEAP_BASE(RL_AGENT):
         writer=None,
     ):
         debug = debug and writer is not None
-        # appendix A1 just says to randomly sample a state as goal and use a random timestep
-        # if so we might as well just use a HER, it makes sense this way
-        # TODO(H): careful for the A.5 parameterization
-        # if the subgoal trajectories are shorter than expected, does the update rule here still suffice?
         size_batch = batch_obs_curr.shape[0]
         with torch.no_grad():
             batch_targ_reached = (batch_obs_next == batch_obs_targ).reshape(size_batch, -1).all(-1)
-            batch_done_augmented = torch.logical_or(batch_targ_reached, batch_done)
             mask_dead = torch.logical_and(batch_done, ~batch_targ_reached)
             batch_obs_next_targ = torch.cat([batch_obs_next, batch_obs_targ], 0)
             batch_obs_curr_next_targ = torch.cat([batch_obs_curr, batch_obs_next_targ], 0)
@@ -277,15 +272,6 @@ class LEAP_BASE(RL_AGENT):
             target_distance_dist = self.network_target.estimator_distance.histogram_converter.to_histogram(target_distance.detach())
         distance_logits_curr = predicted_distance.reshape(size_batch, -1)
         loss_distance = torch.nn.functional.kl_div(torch.log_softmax(distance_logits_curr, -1), target_distance_dist.detach(), reduction="none").sum(-1)
-        # # Q head
-        # with torch.no_grad():
-        #     values_next = self.network_target.estimator_Q(states_local_next_targ_targetnet, action=action_next, scalarize=True).reshape(size_batch, -1)
-        #     batch_reward_int = batch_targ_reached.float().reshape(size_batch, -1)
-        #     values_next[batch_done_augmented] = 0
-        #     target_Q = batch_reward_int + self.gamma_int * values_next
-        #     Q_dist_target = self.network_target.estimator_Q.histogram_converter.to_histogram(target_Q.detach())
-        # Q_logits_curr = predicted_Q.reshape(size_batch, -1)
-        # loss_TD = torch.nn.functional.kl_div(torch.log_softmax(Q_logits_curr, -1), Q_dist_target.detach(), reduction="none").sum(-1)
 
         # omega head
         predicted_omega = self.network_policy.estimator_omega(state_local_next, scalarize=False)
@@ -322,8 +308,7 @@ class LEAP_BASE(RL_AGENT):
         # return priorities, loss_TD, loss_distance, loss_omega, states_local_curr_targ
         return priorities, loss_distance, loss_omega, states_local_curr_targ
 
-    @torch.no_grad()  # TODO(H): implement the once strategy for faster
-    # @profile
+    @torch.no_grad()
     def decide(self, obs_curr, epsilon=None, eval=False, env=None, writer=None, random_walk=False, step_record=None):
         if epsilon is None:
             epsilon = self.epsilon_eval if eval else self.schedule_epsilon.value(self.steps_interact)
@@ -372,7 +357,6 @@ class LEAP_BASE(RL_AGENT):
                 if self.episode_for_debug:
                     print(f"[step {self.steps_episode}]: self.code_goal is None, encoded")
                 self.code_goal = self.cvae.encode_from_obs(self.obs_goal_tensor).reshape(-1, self.cvae.num_categoricals * self.cvae.num_categories).float()
-            # TODO(H): put self.num_waypoints along the way
             if self.episode_for_debug:
                 print(f"[step {self.steps_episode}]: finished {self.num_subgoals_finished} subgoals")
             if self.obses_intermediate_subgoals is None:  # construct path nodes
@@ -723,7 +707,6 @@ class LEAP(LEAP_BASE):
         cvae not synced, since we don't need it for target network
         """
         self.network_target.binder.load_state_dict(self.network_policy.binder.state_dict())
-        # self.network_target.estimator_Q.load_state_dict(self.network_policy.estimator_Q.state_dict())
         self.network_target.estimator_distance.load_state_dict(self.network_policy.estimator_distance.state_dict())
         self.network_target.estimator_omega.load_state_dict(self.network_policy.estimator_omega.state_dict())
         if not self.silent:
@@ -748,27 +731,16 @@ def create_leap_network(args, env, dim_embed, num_actions, device, share_memory=
     interval_beta = 10000
     obs_sample = minigridobs2tensor(env.reset())
     checkpoint = torch.load(args.path_pretrained_vae)
-    if args.leap_vae_discrete:
-        cvae = CVAE_MiniGrid_Separate2(
-            encoder_CVAE,
-            decoder_CVAE,
-            obs_sample,
-            num_categoricals=checkpoint["num_categoricals"],
-            num_categories=checkpoint["num_categories"],
-            beta=beta,
-            activation=activation,
-            interval_beta=interval_beta,
-        )
-    else:
-        cvae = CVAE_MiniGrid_Separate2_leap(
-            encoder_CVAE,
-            decoder_CVAE,
-            obs_sample,
-            args.dim_latent_leap,
-            beta=beta,
-            activation=activation,
-            interval_beta=interval_beta,
-        )
+    cvae = CVAE_MiniGrid_Separate2(
+        encoder_CVAE,
+        decoder_CVAE,
+        obs_sample,
+        num_categoricals=checkpoint["num_categoricals"],
+        num_categories=checkpoint["num_categories"],
+        beta=beta,
+        activation=activation,
+        interval_beta=interval_beta,
+    )
     cvae.load_state_dict(checkpoint["model_state_dict"])
     cvae.to(device)
     if share_memory:

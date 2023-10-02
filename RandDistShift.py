@@ -1001,7 +1001,6 @@ class RandDistShift2(RandDistShift):
         return r
 
     def ijd2state(self, i, j, d=None):
-        # TODO(H): support vectorized input in other 2 env variants
         i, j = np.array(i), np.array(j)
         if d is not None:
             d = np.array(d)
@@ -1013,7 +1012,6 @@ class RandDistShift2(RandDistShift):
         return i * self.width + j
 
     def state2ijd(self, state):
-        # TODO(H): support vectorized input in other 2 env variants
         state = np.array(state)
         i = state // self.width
         j = state - i * self.width

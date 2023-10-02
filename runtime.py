@@ -44,7 +44,7 @@ def generate_exptag(args, additional=""):
             args.comments += f"_{args.depth_hidden}x{args.width_hidden}_{args.atoms_value}atoms_lenrep{args.len_rep}"
         # if args.size_world != 8: args.comments += f'_world{args.size_world:g}x{args.size_world:g}'
         if args.method == "Skipper" and args.cvae:
-            args.comments += "_CVAE"  # TODO(H): I think we will have to augment this a lot
+            args.comments += "_CVAE"
             if args.suppress_delusion:
                 args.comments += "_suppress_delusion"
         if args.uniform_init:

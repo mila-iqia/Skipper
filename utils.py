@@ -704,7 +704,7 @@ def abstract_planning(gammas, rewards, omegas=None, tol=1e-5, max_iters=5, no_lo
         num_iters += 1
         q = rewards + gammas * v_old.reshape(1, -1)
         if no_loop:
-            q.fill_diagonal_(0)  # TODO(H):change here if with negative rewards
+            q.fill_diagonal_(0)  # NOTE(H):change here if with negative rewards
         v_new = q.max(dim=-1)[0]
         converged = torch.allclose(v_new, v_old, rtol=tol, atol=tol, equal_nan=False)
         if num_iters >= max_iters or converged:

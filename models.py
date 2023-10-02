@@ -2,8 +2,8 @@ import os, sys
 
 sys.path.insert(1, os.getcwd())
 import torch, numpy as np
-from utils import init_weights, HistogramConverter, cyclical_schedule  # , unique_rows
-from modules import ResidualBlock, Block_UNET, TopKMultiheadAttention
+from utils import init_weights, HistogramConverter, cyclical_schedule
+from modules import ResidualBlock, TopKMultiheadAttention
 
 
 class CVAE_MiniGrid_Separate2(torch.nn.Module):
@@ -86,7 +86,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         logits_code = self.compressor(obs_encoded).reshape(-1, self.num_categoricals, self.num_categories)
         return logits_code
 
-    # @profile
     def fuse_samples_with_context(self, samples, context):
         size_batch = samples.shape[0]
         assert context.shape[0] == size_batch
@@ -112,7 +111,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         return parameters
 
     @torch.no_grad()
-    # @profile
     def mask_from_logits(self, logits_mask_agent, noargmax=False):
         size_batch = logits_mask_agent.shape[0]
         logits_mask_agent = logits_mask_agent.reshape(size_batch, -1)
@@ -125,7 +123,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         return mask_agent_pred
 
     @torch.no_grad()
-    # @profile
     def sample_from_uniform_prior(self, obs_curr, num_samples=None, code2exclude=None):
         if self.samples_uniform.device != obs_curr.device:
             self.samples_uniform = self.samples_uniform.to(obs_curr.device)
@@ -151,7 +148,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         return samples, self.forward(obs_curr, samples=samples, train=False)
 
     @torch.no_grad()
-    # @profile
     def generate_from_obs(self, obs, num_samples=None):
         assert num_samples is not None
         size_batch = obs.shape[0]
@@ -165,29 +161,24 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         return code, obses_pred
 
     @torch.no_grad()
-    # @profile
     def imagine_batch_from_obs(self, obs):
         layout, _ = self.layout_extractor(obs)
         layout = layout.float().detach()
         context = self.encoder_context(obs)
-        if True:
-            size_batch = obs.shape[0]
-            samples = (
-                torch.distributions.OneHotCategorical(
-                    probs=torch.ones(size_batch, self.num_categoricals, self.num_categories, dtype=torch.float32, device=obs.device)
-                )
-                .sample()
-                .reshape(size_batch, -1)
+        size_batch = obs.shape[0]
+        samples = (
+            torch.distributions.OneHotCategorical(
+                probs=torch.ones(size_batch, self.num_categoricals, self.num_categories, dtype=torch.float32, device=obs.device)
             )
-        else:
-            samples = self.encode_from_obs(obs, no_argmax=True)
+            .sample()
+            .reshape(size_batch, -1)
+        )
         logits_mask_agent = self.fuse_samples_with_context(samples.float(), context)
         mask_agent_pred = self.mask_from_logits(logits_mask_agent, noargmax=True)
         obses_pred = self.decoder(layout, mask_agent_pred)
         return obses_pred
 
     @torch.no_grad()
-    # @profile
     def encode_from_obs(self, obs, no_argmax=False):
         logits_samples = self.compress_from_obs(obs)
         if self.argmax_latents and not no_argmax:
@@ -198,7 +189,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         return samples
 
     @torch.no_grad()
-    # @profile
     def decode_to_obs(self, samples, obs):
         size_batch = obs.shape[0]
         assert samples.shape[0] == size_batch
@@ -211,7 +201,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         obses_pred = self.decoder(layout, mask_agent_pred)
         return obses_pred
 
-    # @profile
     def forward(self, obs_curr, obs_targ=None, samples=None, train=False):
         size_batch = obs_curr.shape[0]
         context = self.encoder_context(obs_curr)
@@ -235,7 +224,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
                 mask_agent_pred = self.mask_from_logits(logits_mask_agent)
             return mask_agent_pred.bool()
 
-    # @profile
     def compute_loss(self, batch_processed, debug=False):
         batch_obs_curr, batch_action, batch_reward, batch_obs_next, batch_done, batch_obs_targ, weights, batch_idxes = batch_processed
         with torch.no_grad():
@@ -256,9 +244,7 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
         probs_samples = logits_samples.softmax(-1)
         h1_minus_h2 = probs_samples * ((probs_samples + eps).log() + self.minus_log_uniform)
         loss_entropy = h1_minus_h2.reshape(size_batch, -1).sum(-1)
-        # pull prior towards posterior
-        loss_conditional_prior = None  # torch.nn.functional.kl_div(input=logsoftmax_samples.detach(), target=self.get_prior(state_cond), log_target=False, reduction='none').reshape(size_batch, -1).sum(-1)
-
+        loss_conditional_prior = None
         coeff_schedule = cyclical_schedule(step=self.steps_trained, interval=self.interval_beta)
         loss_overall = self.beta * coeff_schedule * loss_entropy + loss_recon
         if loss_conditional_prior is not None:
@@ -305,399 +291,6 @@ class CVAE_MiniGrid_Separate2(torch.nn.Module):
                 entropy_prior,
                 ratio_perfect_recon,
                 ratio_aligned,
-            )
-
-
-class CVAE_MiniGrid_UNET(torch.nn.Module):
-    def __init__(
-        self,
-        encoder,
-        decoder,
-        sample_input,
-        depth=3,
-        width=512,
-        num_categoricals=8,
-        num_categories=8,
-        atoms=4,
-        beta=0.0005,
-        KL_balance=True,
-        maximize_entropy=False,
-        alpha_KL_balance=0.8,
-        activation=torch.nn.ReLU,
-        interval_beta=2500,
-        batchnorm=True,
-        fn_output=lambda x: x,
-        **kwargs,
-    ):
-        super(CVAE_MiniGrid_UNET, self).__init__(**kwargs)
-        self.atoms = atoms
-        self.num_categoricals, self.num_categories = num_categoricals, num_categories
-        self.len_code = num_categoricals * num_categories
-        self.encoder, self.decoder = (
-            encoder,
-            decoder,
-        )  # we want future compatibility, use torch.nn.Identity for decoder!
-        self.KL_balance, self.maximize_entropy = KL_balance, maximize_entropy
-        self.beta, self.alpha_KL_balance = beta, alpha_KL_balance
-        from minigrid import OBJECT_TO_IDX
-
-        self.object_to_idx = OBJECT_TO_IDX
-        self.interval_beta = interval_beta
-        self.steps_trained = 0
-        num_channels = sample_input.shape[1]
-        assert sample_input.shape[2] == sample_input.shape[3], "only square inputs supported"
-        self.size_input = sample_input.shape[2]
-        self.sizes_conv, self.sizes_conv_original = [], []
-        size_conv = self.size_input
-        size_conv_original = self.size_input
-        for i in range(4):
-            self.sizes_conv.append(size_conv)
-            self.sizes_conv_original.append(size_conv_original)
-            size_conv = size_conv // 2
-            size_conv_original = size_conv_original // 2
-            if size_conv > 1 and size_conv % 2 == 1:
-                size_conv = size_conv + 1
-
-        self.conv_level1_left = Block_UNET(channels_in=num_channels, channels_out=32, activation=activation, batchnorm=batchnorm)
-        self.pool_level12 = torch.nn.MaxPool2d(2, stride=None, padding=0)  # 8x8 to 4x4
-        self.conv_level2_left = Block_UNET(channels_in=32, channels_out=64, activation=activation, batchnorm=batchnorm)
-        self.pool_level23 = torch.nn.MaxPool2d(2, stride=None, padding=0)  # 4x4 to 2x2
-        self.conv_level3_left = Block_UNET(channels_in=64, channels_out=128, activation=activation, batchnorm=batchnorm)
-        self.pool_level34 = torch.nn.MaxPool2d(2, stride=None, padding=0)  # 2x2 to 1x1
-
-        size_bottleneck = max(self.len_code, 128)
-        self.code_extractor = torch.nn.Sequential(
-            torch.nn.Conv2d(
-                128,
-                size_bottleneck,
-                kernel_size=self.sizes_conv[-1],
-                stride=1,
-                padding=0,
-                bias=not batchnorm,
-            ),
-            torch.nn.Flatten(),
-            activation(),
-            torch.nn.Linear(size_bottleneck, self.len_code),
-        )
-
-        self.conv_bottom = Block_UNET(
-            channels_in=self.len_code,  # 256 +
-            channels_out=256,
-            channels_mid=size_bottleneck,
-            activation=activation,
-            batchnorm=batchnorm,
-        )
-
-        self.unpool_level43 = torch.nn.Upsample(scale_factor=2, mode="nearest")
-        # self.unpool_level43 = torch.nn.ConvTranspose2d(256, 128, kernel_size=self.sizes_conv_original[-2], stride=1, bias=not batchnorm)
-        self.conv_level3_right = Block_UNET(channels_in=128 * 3, channels_out=128, channels_mid=256, activation=activation, batchnorm=batchnorm)
-        self.unpool_level32 = torch.nn.Upsample(scale_factor=2, mode="nearest")
-        # self.unpool_level32 = torch.nn.ConvTranspose2d(128, 64, kernel_size=2, stride=2, bias=not batchnorm)
-        self.conv_level2_right = Block_UNET(channels_in=64 * 3, channels_out=64, channels_mid=128, activation=activation, batchnorm=batchnorm)
-        self.unpool_level21 = torch.nn.Upsample(scale_factor=2, mode="nearest")
-        # self.unpool_level21 = torch.nn.ConvTranspose2d(64, 32, kernel_size=2, stride=2, bias=not batchnorm)
-        self.conv_level1_right = Block_UNET(channels_in=32 * 3, channels_out=32, channels_mid=64, activation=activation, batchnorm=batchnorm)
-        self.out = torch.nn.Conv2d(32, num_channels, kernel_size=1, stride=1, padding=0)
-
-        self.fn_output = fn_output
-
-    def to(self, device):
-        super().to(device)
-        self.conv_level1_left.to(device)
-        self.pool_level12.to(device)
-        self.conv_level2_left.to(device)
-        self.pool_level23.to(device)
-        self.conv_level3_left.to(device)
-        self.pool_level34.to(device)
-        self.conv_bottom.to(device)
-        self.code_extractor.to(device)
-        self.unpool_level43.to(device)
-        self.conv_level3_right.to(device)
-        self.unpool_level32.to(device)
-        self.conv_level2_right.to(device)
-        self.unpool_level21.to(device)
-        self.conv_level1_right.to(device)
-        self.out.to(device)
-
-    def parameters(self):
-        parameters = []
-        parameters += list(self.conv_level1_left.parameters())
-        parameters += list(self.conv_level2_left.parameters())
-        parameters += list(self.conv_level3_left.parameters())
-        parameters += list(self.conv_bottom.parameters())
-        parameters += list(self.code_extractor.parameters())
-        parameters += list(self.unpool_level43.parameters())
-        parameters += list(self.conv_level3_right.parameters())
-        parameters += list(self.unpool_level32.parameters())
-        parameters += list(self.conv_level2_right.parameters())
-        parameters += list(self.unpool_level21.parameters())
-        parameters += list(self.conv_level1_right.parameters())
-        parameters += list(self.out.parameters())
-        return parameters
-
-    def get_prior(self, input_cond):
-        return self.get_logsoftmax_prior(input_cond).exp()
-
-    def get_logsoftmax_prior(self, input_cond):
-        size_batch = input_cond.shape[0]
-        (
-            after_conv_level1_left,
-            after_conv_level2_left,
-            after_conv_level3_left,
-            before_conv_bottom,
-        ) = self.forward_left(input_cond)
-        logit_samples = self.code_extractor(before_conv_bottom).reshape(size_batch, self.num_categoricals, self.num_categories)
-        return logit_samples.log_softmax(-1)
-
-    @torch.no_grad()
-    def sample_from_prior(self, input_cond, size_batch=64, unique=False, topk=0):
-        probs_prior = self.get_prior(input_cond)
-        dist = torch.distributions.Categorical(logits=probs_prior)
-        samples = torch.eye(self.num_categories, device=input_cond.device)[dist.sample([size_batch])].reshape(
-            size_batch, self.num_categoricals, self.num_categories
-        )
-        if unique:
-            samples_unique, excluded = unique_rows(samples.reshape(samples.shape[0], -1))
-            samples_unique = samples_unique.reshape(samples_unique.shape[0], self.num_categoricals, self.num_categories)
-            if topk > 0:
-                prob_samples = (samples_unique * probs_prior).sum(-1).prod(-1)
-                idxs_select = torch.topk(prob_samples, topk)[1]
-                samples_unique = samples_unique[idxs_select]
-            if input_cond.shape[0] == 1:
-                input_cond = torch.repeat_interleave(input_cond, samples_unique.shape[0], 0)
-            else:
-                assert input_cond.shape[0] == samples_unique.shape[0]
-            return self.forward(input_cond, samples=samples_unique)
-        else:
-            if topk > 0:
-                prob_samples = (samples * probs_prior).sum(-1).prod(-1)
-                idxs_select = torch.topk(prob_samples, topk)[1]
-                samples = samples[idxs_select]
-            if input_cond.shape[0] == 1:
-                input_cond = torch.repeat_interleave(input_cond, samples.shape[0], 0)
-            else:
-                assert input_cond.shape[0] == samples.shape[0]
-            return self.forward(input_cond, samples=samples)
-
-    @torch.no_grad()
-    def sample_from_uniform_prior(self, input_cond):
-        tensors_to_mesh = []
-        for idx_category in range(self.num_categoricals):
-            tensors_to_mesh.append(torch.arange(self.num_categories, device=input_cond.device))
-        indices_mesh = torch.meshgrid(*tensors_to_mesh)
-        indices_mesh = torch.concatenate([indices.reshape(1, -1) for indices in indices_mesh], 0).permute(1, 0).contiguous()
-        samples = torch.nn.functional.one_hot(indices_mesh, num_classes=self.num_categories)
-        assert samples.shape[0] == self.num_categories**self.num_categoricals
-        if input_cond.shape[0] == 1:
-            input_cond = torch.repeat_interleave(input_cond, samples.shape[0], 0)
-        else:
-            assert input_cond.shape[0] == samples.shape[0]
-        return self.forward(input_cond, samples=samples)
-
-    def forward_left(self, input_cond):
-        input_cond = input_cond.float()
-
-        before_conv_level1_left = input_cond
-
-        after_conv_level1_left_original = self.conv_level1_left(before_conv_level1_left)
-        if after_conv_level1_left_original.shape[-1] % 2 == 0:
-            after_conv_level1_left = after_conv_level1_left_original
-        else:
-            after_conv_level1_left = torch.nn.functional.pad(after_conv_level1_left_original, (0, 1, 0, 1))
-
-        before_conv_level2_left = self.pool_level12(after_conv_level1_left)
-        after_conv_level2_left_original = self.conv_level2_left(before_conv_level2_left)
-        if after_conv_level2_left_original.shape[-1] % 2 == 0:
-            after_conv_level2_left = after_conv_level2_left_original
-        else:
-            after_conv_level2_left = torch.nn.functional.pad(after_conv_level2_left_original, (0, 1, 0, 1))
-        before_conv_level3_left = self.pool_level23(after_conv_level2_left)
-        after_conv_level3_left_original = self.conv_level3_left(before_conv_level3_left)
-        if after_conv_level3_left_original.shape[-1] % 2 == 0:
-            after_conv_level3_left = after_conv_level3_left_original
-        else:
-            after_conv_level3_left = torch.nn.functional.pad(after_conv_level3_left_original, (0, 1, 0, 1))
-        before_conv_bottom = self.pool_level34(after_conv_level3_left)
-
-        return (
-            after_conv_level1_left_original,
-            after_conv_level2_left_original,
-            after_conv_level3_left_original,
-            before_conv_bottom,
-        )
-
-    def forward_right(
-        self,
-        before_conv_bottom,
-        after_conv_level3_left,
-        after_conv_level2_left,
-        after_conv_level1_left,
-        samples,
-    ):
-        size_batch = samples.shape[0]
-        samples_tiled = samples.reshape(size_batch, -1, 1, 1).repeat(1, 1, before_conv_bottom.shape[-2], before_conv_bottom.shape[-1])
-        after_conv_bottom = self.conv_bottom(samples_tiled)
-        # after_conv_bottom = self.conv_bottom(torch.cat([before_conv_bottom, samples_tiled], 1))
-
-        unpooled_43 = self.unpool_level43(after_conv_bottom)
-        if after_conv_level3_left.shape[-1] == unpooled_43.shape[-1] - 1:
-            unpooled_43 = unpooled_43[:, :, :-1, :-1]
-        before_conv_level3_right = torch.cat([after_conv_level3_left, unpooled_43], 1)
-        after_conv_level3_right = self.conv_level3_right(before_conv_level3_right)
-
-        unpooled_32 = self.unpool_level32(after_conv_level3_right)
-        if after_conv_level2_left.shape[-1] == unpooled_32.shape[-1] - 1:
-            unpooled_32 = unpooled_32[:, :, :-1, :-1]
-        before_conv_level2_right = torch.cat([after_conv_level2_left, unpooled_32], 1)
-        after_conv_level2_right = self.conv_level2_right(before_conv_level2_right)
-
-        unpooled_21 = self.unpool_level21(after_conv_level2_right)
-        if after_conv_level1_left.shape[-1] == unpooled_21.shape[-1] - 1:
-            unpooled_21 = unpooled_21[:, :, :-1, :-1]
-        before_conv_level1_right = torch.cat([after_conv_level1_left, unpooled_21], 1)
-        after_conv_level1_right = self.conv_level1_right(before_conv_level1_right)
-
-        output = self.out(after_conv_level1_right)
-        return output
-
-    def forward(self, input_cond, input_targ=None, samples=None, return_logits_and_probs=False):
-        size_batch = input_cond.shape[0]
-        input_cond = input_cond.float()
-        if input_targ is None:
-            input_targ = input_cond
-        else:
-            input_targ = input_targ.float()
-
-        (
-            after_conv_level1_left,
-            after_conv_level2_left,
-            after_conv_level3_left,
-            before_conv_bottom,
-        ) = self.forward_left(input_cond)
-        if input_targ is None:
-            before_conv_bottom_targ = before_conv_bottom
-        else:
-            _, _, _, before_conv_bottom_targ = self.forward_left(input_targ)
-
-        if samples is None:
-            logits_samples = self.code_extractor(before_conv_bottom_targ).reshape(size_batch, self.num_categoricals, self.num_categories)
-            probs_samples = logits_samples.softmax(-1)
-            # samples = torch.distributions.Categorical(probs=probs_samples).sample()
-            # samples = torch.distributions.OneHotCategoricalStraightThrough(probs_samples).rsample()
-
-            # #################################
-            # Sample from Gumbel
-            # eps = 1e-7
-            # temp = 1.0
-            # u = torch.rand_like(logits_samples)
-            # g = -torch.log(-torch.log(u + eps) + eps)
-
-            # # Gumbel-Softmax sample
-            # probs_samples = torch.nn.functional.softmax((logits_samples + g) / temp, dim=-1)
-            # # #################################
-            # # samples = torch.distributions.OneHotCategoricalStraightThrough(probs_samples).rsample()
-            # ###################################
-            # samples = probs_samples
-            from BACKUP.gumbel_rao import gumbel_rao
-
-            samples = gumbel_rao(logits_samples, k=1024, temp=1.0, straight_through=False)  # , I=samples
-
-        output = self.forward_right(
-            before_conv_bottom,
-            after_conv_level3_left,
-            after_conv_level2_left,
-            after_conv_level1_left,
-            samples,
-        )
-
-        output = self.fn_output(output)
-        if return_logits_and_probs:
-            return output, logits_samples, probs_samples
-        else:
-            return output
-
-    def compute_loss(
-        self,
-        batch_processed,
-        debug=False,
-    ):
-        (
-            batch_obs_curr,
-            batch_action,
-            batch_reward,
-            batch_obs_next,
-            batch_done,
-            batch_obs_targ,
-            weights,
-            batch_idxes,
-            info,
-        ) = batch_processed
-
-        size_batch = batch_obs_targ.shape[0]
-        with torch.no_grad():
-            obs_chosen = batch_obs_targ
-            obs_cond = batch_obs_curr
-
-        state_recon = self.encoder(obs_chosen)
-        state_cond = self.encoder(obs_cond)
-
-        state_pred, logit_samples, probs_samples = self.forward(state_cond, input_targ=state_recon, return_logits_and_probs=True)
-
-        loss_recon = torch.nn.functional.mse_loss(state_pred, state_recon.float(), reduction="none").reshape(size_batch, -1).sum(-1)
-
-        # maximize the kl-loss
-        eps = 1e-7
-        h1_minus_h2 = probs_samples * (probs_samples * self.num_categories + eps).log()
-
-        loss_entropy = h1_minus_h2.reshape(size_batch, -1).sum(-1)
-        # pull prior towards posterior
-        loss_conditional_prior = torch.zeros_like(
-            loss_entropy
-        )  # torch.nn.functional.kl_div(input=logsoftmax_samples.detach(), target=self.get_prior(state_cond), log_target=False, reduction='none').reshape(size_batch, -1).sum(-1)
-
-        coeff_schedule = cyclical_schedule(step=self.steps_trained, interval=self.interval_beta)
-        loss_overall = self.beta * loss_conditional_prior + self.beta * coeff_schedule * loss_entropy + loss_recon
-
-        self.steps_trained += 1
-
-        if not debug:
-            return (
-                loss_overall,
-                loss_recon,
-                loss_entropy,
-                loss_conditional_prior,
-                None,
-                None,
-                None,
-                None,
-                None,
-                None,
-            )
-        else:
-            with torch.no_grad():
-                obs_pred = self.decoder(state_pred, compact=True, learn=False)
-                dist_L1 = torch.abs(obs_pred - obs_chosen).float()
-                mask_perfect_recon = dist_L1.reshape(dist_L1.shape[0], -1).sum(-1) == 0
-                ratio_perfect_recon = mask_perfect_recon.sum() / mask_perfect_recon.shape[0]
-                mask_agent = obs_chosen[:, :, :, 0] == self.object_to_idx["agent"]
-                dist_L1_mean = dist_L1.mean()
-                dist_L1_nontrivial = dist_L1[mask_agent].mean()
-                dist_L1_trivial = dist_L1[~mask_agent].mean()
-                uniformity = (probs_samples.mean(0) - 1.0 / self.num_categories).abs_().mean()
-                # dist = torch.distributions.Categorical(logits=logsoftmax_prior)
-                # entropy_prior = dist.entropy().mean()
-                entropy_prior = None
-            return (
-                loss_overall,
-                loss_recon,
-                loss_entropy,
-                loss_conditional_prior,
-                dist_L1_mean,
-                dist_L1_nontrivial,
-                dist_L1_trivial,
-                uniformity,
-                entropy_prior,
-                ratio_perfect_recon,
             )
 
 
@@ -750,7 +343,6 @@ class Decoder_MiniGrid_Separate(torch.nn.Module):
         mask_on_goal = torch.logical_and(mask_agent.reshape(size_batch, -1), mask_goal.reshape(size_batch, -1)).any(-1)
         colors[mask_on_goal] = self.color_to_idx["green"]
         mask_agent = mask_agent.reshape(size_batch, layout.shape[-3], layout.shape[-2])
-
         obs[mask_agent] = torch.stack([torch.full([size_batch], self.object_to_idx["agent"], device=obs.device, dtype=obs.dtype), colors], dim=-1)
         return obs
 
@@ -838,7 +430,6 @@ class Embedder_MiniGrid_BOW(torch.nn.Module):  # adapted from BabyAI 1.1
         parameters = list(self.embedding.parameters())
         return parameters
 
-    # @profile
     def forward(self, inputs):
         with torch.no_grad():
             if self.ebd_pos:
@@ -854,7 +445,6 @@ class Embedder_MiniGrid_BOW(torch.nn.Module):  # adapted from BabyAI 1.1
                 inputs = inputs.long()
             if self.channels_obs > 1:
                 inputs += self.offsets
-        # permute so it can be fed to conv layers in the encoder
         return self.embedding(inputs.detach()).sum(-2).permute(0, 3, 1, 2).contiguous()
 
 
@@ -883,7 +473,6 @@ class Encoder_MiniGrid(torch.nn.Module):
         parameters += list(self.layers.parameters())
         return parameters
 
-    # @profile
     def forward(self, obs_minigrid):
         rep_bow = self.embedder(obs_minigrid)
         return self.layers(rep_bow)
@@ -904,14 +493,11 @@ class Binder_MiniGrid(torch.nn.Module):
         self.local_perception = "local" in type_arch.lower()
         if self.local_perception:
             self.extractor_fields = torch.nn.Conv2d(dim_embed, len_rep, kernel_size=size_field, stride=1, padding=0)
-            # self.query = torch.nn.parameter.Parameter(data=torch.nn.init.uniform_(torch.empty(len_rep)).reshape(1, 1, len_rep), requires_grad=True)
             self.register_buffer("query", torch.zeros(1, 1, len_rep))
             if size_bottleneck == 0:
                 print("BINDER: size_bottleneck == 0, fall back to standard attention")
                 self.attn = torch.nn.MultiheadAttention(embed_dim=len_rep, num_heads=num_heads, kdim=len_rep, vdim=len_rep, batch_first=True, dropout=0.0)
             else:
-                # from nocache_attention import AttentionNoCache
-                # self.attn = AttentionNoCache(activation=torch.nn.Softmax(-1), size_bottleneck=size_bottleneck)
                 self.attn = TopKMultiheadAttention(
                     embed_dim=len_rep,
                     num_heads=num_heads,
@@ -951,7 +537,6 @@ class Binder_MiniGrid(torch.nn.Module):
                 parameters += list(self.layer_norm_1.parameters())
                 parameters += list(self.layer_norm_2.parameters())
             parameters += list(self.attn.parameters())
-            # parameters += [self.query]
             return parameters
         else:
             return list(self.flattener.parameters())
@@ -962,7 +547,6 @@ class Binder_MiniGrid(torch.nn.Module):
         if self.norm:
             fields = self.layer_norm_1(fields)
         state_local, _ = self.attn(self.query.expand(size_batch, 1, self.len_rep), fields, fields, need_weights=False)
-        # state_local = self.attn(self.query.expand(size_batch, 1, self.len_rep), fields, fields)
         if self.norm:
             state_local = self.layer_norm_2(state_local)
         state_local = self.activation()(state_local)
@@ -1019,7 +603,6 @@ class Predictor_MiniGrid(torch.nn.Module):
         else:
             self.histogram_converter = None
             self.len_output = self.len_predict
-            # self.value_min, self.value_max = dict_head["value_min"], dict_head["value_max"]
 
         self.layers = []
         for idx_layer in range(depth):
@@ -1029,15 +612,10 @@ class Predictor_MiniGrid(torch.nn.Module):
             if idx_layer == depth - 1:
                 len_out = self.len_output
             if idx_layer > 0:
-                # if self.norm:
-                #     self.layers.append(torch.nn.LayerNorm(len_in))
                 self.layers.append(activation(True))
             self.layers.append(torch.nn.Linear(len_in, len_out))
         self.layers = torch.nn.Sequential(*self.layers)
         init_weights(self.layers)
-        # with torch.no_grad():
-        #     torch.nn.init.orthogonal_(self.layers[-1].weight, 0.01)
-        #     self.layers[-1].bias.data.zero_()
 
     def to(self, device):
         super().to(device)
@@ -1069,4 +647,4 @@ class Predictor_MiniGrid(torch.nn.Module):
             else:
                 return predicted
         else:
-            return predicted  # .clamp(self.value_min, self.value_max)
+            return predicted
