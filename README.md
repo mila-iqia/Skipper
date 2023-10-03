@@ -13,10 +13,6 @@ arXiv: pending
 
   
 
-## Read carefully the args definition in runtime.py
-
-  
-
 ## Python virtual environment configuration:
 
 1. Create a virtual environment with conda or venv (we used Python 3.9)
@@ -38,6 +34,8 @@ arXiv: pending
 `run_leap_pretrain_vae.py`: a single-processed experiment initializer for pretraining generator for the adapted LEAP agent
 
 `run_leap_pretrain_rl.py`: a single-processed experiment initializer for pretraining distance estimator (policy) for the adapted LEAP agent
+
+Please read carefully the args definition in `runtime.py` and pass the desired args in the commands.
 
 ## Extras
  - There is a potential CUDA_INDEX_ASSERTION error that could cause hanging at the beginning of the Skipper runs. We don't know yet how to fix it
