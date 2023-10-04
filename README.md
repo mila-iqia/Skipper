@@ -1,17 +1,15 @@
 
 # Skipper
 
-A PyTorch Implementation of Skipper, proposed in
-
-  
+A PyTorch Implementation of Skipper, proposed in 
 
 **Combining Spatial and Temporal Abstraction in Planning for Better Generalization**
 
 -- *Mingde Zhao, Safa Alver, Harm van Seijen, Romain Laroche, Doina Precup, Yoshua Bengio*
 
-arXiv: pending
+arXiv: https://arxiv.org/abs/2310.00229
 
-  
+![skipper_cover](https://github.com/PwnerHarry/Skipper/assets/5063589/3a06bc2a-4b1d-4388-a1cd-cef6924c0451)
 
 ## Python virtual environment configuration:
 
