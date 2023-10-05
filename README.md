@@ -9,7 +9,7 @@ A PyTorch Implementation of Skipper, proposed in
 
 arXiv: https://arxiv.org/abs/2310.00229
 
-blogpost (with bonus contents): http://mingde.world/skipper-combining-spatial-and-temporal-abstraction-in-planning-for-better-generalization/ 
+blogpost (with bonus contents): http://mingde.world/combining-spatial-and-temporal-abstraction-in-planning/
 
 ![skipper_cover](https://github.com/PwnerHarry/Skipper/assets/5063589/3a06bc2a-4b1d-4388-a1cd-cef6924c0451)
 
