@@ -7,9 +7,9 @@ A PyTorch Implementation of Skipper, proposed in
 
 -- *Mingde Zhao, Safa Alver, Harm van Seijen, Romain Laroche, Doina Precup, Yoshua Bengio*
 
-arXiv: https://arxiv.org/abs/2310.00229
+[arXiv](https://arxiv.org/abs/2310.00229)
 
-blogpost (with bonus contents): http://mingde.world/combining-spatial-and-temporal-abstraction-in-planning/
+[blogpost](http://mingde.world/combining-spatial-and-temporal-abstraction-in-planning/)
 
 ![skipper_cover](http://github.com/PwnerHarry/Skipper/assets/5063589/3a06bc2a-4b1d-4388-a1cd-cef6924c0451)
 
