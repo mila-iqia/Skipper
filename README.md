@@ -1,7 +1,7 @@
 
 # Skipper
 
-A PyTorch Implementation of Skipper, proposed in 
+A PyTorch Implementation of Skipper, proposed in the ICLR 2024 paper
 
 **Combining Spatial and Temporal Abstraction in Planning for Better Generalization**
 
