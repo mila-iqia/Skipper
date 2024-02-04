@@ -3,7 +3,7 @@
 
 A PyTorch Implementation of Skipper, proposed in the ICLR 2024 paper
 
-**Combining Spatial and Temporal Abstraction in Planning for Better Generalization**
+**Consciousness-Inspired Spatio-Temporal Abstractions for Better Generalization in Reinforcement Learning**
 
 -- *Mingde Zhao, Safa Alver, Harm van Seijen, Romain Laroche, Doina Precup, Yoshua Bengio*
 
